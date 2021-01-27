@@ -1,6 +1,9 @@
 # CountOfUs
 
-There is a word in English - 'sonder', which means 'a realization that each individual around you has a vivid and complex life like you'. So, how many such vivid and complex lives ever come to live by on the Earth? Curiosity behind this question led to this app. Here is the link to a video demo of the app: https://www.youtube.com/embed/NfYR9uTQdIo
+There is a word in English - 'sonder', which means 'a realization that each individual around you has a vivid and complex life like you'. So, how many such vivid and complex lives ever come to live by on the Earth? Curiosity behind this question led to this app. 
+
+The app is temporarily hosted here: http://34.70.139.63:3838/AshwiniJha/DataScience/CountOfUs/
+Here is the link to a video demo of the app: https://www.youtube.com/embed/NfYR9uTQdIo
 
 My initial thoughts on the math that would go into figuring out the answer was more complex and involved than the end result. I was planning on simulating population from beginning to end of timeline using probability distributions for life span, mortality rates, fertility rates, etc. But, looking for these data I discovered researchers at UN had already made available data that I could build upon. There are two different datasets from UN website that I am using - population data and fertility data. The population data gives number of people at different points of time between 1950 and 2020. The fertility data gave number of children born in the same period, with an interval of 5 years. Along with these, there was a third dataset - this one had population estimates from 10,000 BC to 2015 AD. This data came from https://ourworldindata.org. A caveat is that the further we go back in time, the more margin of error is possible in these data.
 
