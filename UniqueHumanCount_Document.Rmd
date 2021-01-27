@@ -1,0 +1,279 @@
+---
+title: "Count of Us - Approach" 
+author: "Ashwini Jha, Data Scientist"
+date: "Jan 2021"
+output: html_document
+---
+
+<style>
+div.black pre { background-color:#006272; color: white;}
+div.black pre.r { background-color:#006272; color:white;}
+</style>
+
+<div class = "black">
+
+<style>
+body {
+    color: white;
+    background-color: black;
+}
+</style>
+
+
+
+
+## About the math and data:
+#### We are interested in finding out the number of unique individuals who lived in a certain timespan. In the app, a user can choose the timespan. Let's say the time span is between 1965 to 1980. We start with the population of 1965, because these people are already living when 1965 began. Then we add the births that happened between 1965 to 1980 to the population count we have for 1965. This number gives us the count of people who existed in a timespan. The birth data is readily available for period between 1950 and 2020, but for years prior to 1950 we will use statistics for estimation. The population data is available for the period of 10,000 BC to 2020 AD (estimated data).
+
+#### There are three datasets that we use in the exercise:
+#### 1. World Population Data {[WPP2019_POP_F01_1_TOTAL_POPULATION_BOTH_SEXES](https://population.un.org/wpp/Download/Standard/Population/)}
+#### 2. World Birth Data {[WPP2019_FERT_F01_BIRTHS_BOTH_SEXES](https://population.un.org/wpp/Download/Standard/Fertility/)}
+#### 3. Historical World Population Data {[WorldPopulationAnnual12000years_interpolated_HYDEandUNto2015](https://ourworldindata.org/uploads/2013/05/WorldPopulationAnnual12000years_interpolated_HYDEandUNto2015.csv/)}
+
+#### We will read in each of these datasets and understand what does the data in them mean.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include = T, results = T, collapse = F)
+```
+
+#### Let's read in two libraries - dplyr and openxlsx.
+```{r libraries, include=T}
+# Installing and reading in the necessary libraries:
+libList <- c("dplyr","openxlsx")
+
+new.packages <- libList[!(libList %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages, repos = "https://cloud.r-project.org/")
+lapply(libList, require, character.only = TRUE)
+```
+
+#### Now, let's read in the data and look what is in there:
+
+#### 1. World Population Data
+```{r Explaining first dataset, include=T}
+wrldPopData <- openxlsx::read.xlsx(xlsxFile = "data/WPP2019_POP_F01_1_TOTAL_POPULATION_BOTH_SEXES.xlsx", sheet = 1, startRow = 17) #Note that the population numbers here are to be multiplied by 1000
+knitr::kable(head(wrldPopData[,c(1:9,78)]))
+```
+#### This dataset contains population count between 1950 and 2020 (hidden the population for most of the years to improve readability), for each year in this span. The columns "Region,.subregion,.country.or.area.*", "Type", "Parent.code" and "Country.code" describe the entity for the population count. The population count is in thousands, i.e., if a population number reads 500, it actually means it is 500,000. We will be taking only the first row of this dataset, that has the world population from 1950 to 2020.
+
+
+#### 2. World Births Data
+```{r Explaining second dataset, include=T}
+wrldBirthsData <- openxlsx::read.xlsx(xlsxFile = "data/WPP2019_FERT_F01_BIRTHS_BOTH_SEXES.xlsx", sheet = 1, startRow = 17) #Note that the population numbers here are to be multiplied by 1000
+knitr::kable(head(wrldBirthsData[,c(1:9,21)]))
+```
+#### This dataset has the number of births information. The numbers are in thousands, like the world population data and have to be multiplied by 1000 for actual count. The interval of data is of 5 years, like 1950 to 1955 has births data from June/Jule of 1950 to May/June of 1955. We will treat these as approximately births that happened in five years of 1950, 1951, 1952, 1953 and 1954. This approximation will enable us to merge it with information from world population data. Again, like world population data, we will take only the first row of this dataset where we will use data at world level.
+
+
+#### 3. Historic World Population Data
+```{r Explaining third dataset, include=T}
+histWrldPopData <- read.csv("data/WorldPopulationAnnual12000years_interpolated_HYDEandUNto2015.csv", stringsAsFactors = F)
+colnames(histWrldPopData) <- c("Year","Population") # Renaming the columns for convenience
+knitr::kable(rbind(head(histWrldPopData,3),tail(histWrldPopData,3)))
+```
+#### This dataset has the world population from 10,000 BC to 2015 AD. This dataset will be useful in getting population estimates prior to 1950. The numbers here are NOT in thousands, they are actual population numbers.
+
+
+## Data Engineering:
+#### Currently the population information is in a "wide" format - for each level, all the population information is in different columns for different years. What we are going to do is, bring this data in a "long" form, that is add years to the level of data. This way, for each level the population number for different years will come in different rows. We will repeat this transformation for the birth data as well. Before this transformation, we remove the identifier columns and retain only the first row of the datasets (Index == 1) which has the information at world level. (You will notice that we are only selecting the world population data of years divisible by 5, the reason for doing this will become clear in a while.)
+
+```{r column to row transformation, include=T}
+wrldPopData <- wrldPopData[wrldPopData$Index == 1,c(6,seq(from = 8, to = 78, by = 5))]
+wrldPopData <- reshape(wrldPopData,
+                         direction = "long",
+                         varying = list(names(wrldPopData)[2:16]),
+                         v.names = "PopulationX1000",
+                         idvar = c("Type"),
+                         timevar = "Year",
+                         times = names(wrldPopData)[2:16])
+
+wrldBirthsData <- wrldBirthsData[wrldBirthsData$Index == 1,c(6,8:21)]
+wrldBirthsData <- reshape(wrldBirthsData,
+                       direction = "long",
+                       varying = list(names(wrldBirthsData)[2:15]),
+                       v.names = "BirthsX1000",
+                       idvar = c("Type"),
+                       timevar = "Year",
+                       times = names(wrldBirthsData)[2:15])
+```
+
+
+#### Next we will set the correct data types of the population numbers , we will convert them to number from character
+```{r data type correction, include=T}
+# Setting correct data type for population count:
+wrldBirthsData$BirthsX1000 <- as.numeric(wrldBirthsData$BirthsX1000)
+wrldPopData$PopulationX1000 <- as.numeric(wrldPopData$PopulationX1000)
+wrldPopData$Year <- as.integer(wrldPopData$Year)
+```
+
+
+
+#### For convenience in handling the year value in birth dataset, we will change the "1950-1955" notation to "1950" and remember that the year and birth count information here implies the number of birth in years between 1950 and 1954 including the these years
+```{r year change, include=T}
+wrldBirthsData$YearMod <- as.integer(sub("(^[^-]+)-.*", "\\1", wrldBirthsData$Year))
+```
+
+
+#### This is how the world population data now looks like after all these changes
+```{r world population view, include=T}
+knitr::kable(rbind(head(wrldPopData,3),tail(wrldPopData,3)))
+```
+
+#### And, this is how the birth dataset looks like:
+```{r birth population view, include=T}
+knitr::kable(rbind(head(wrldBirthsData,3),tail(wrldBirthsData,3)))
+```
+
+
+
+## Predictive Model for Births Data:
+
+#### In the world births data, we have birth information between 1950 and 2020, but to be able to predict unique individual counts before 1950 we need birth data prior to 1950. So, how can we get births data prior to 1950?
+
+#### Well, we do have world's population data with us prior to 1950 all the way till 10,000 BC. And, how many children are born in a time period is definitely dependent on the size of the base population. For timespan between 1950 and 2020, we have base population of the world along with birth counts. So, one way we can get births data prior to 1950 is by modelling a linear relationship between the base population and the corresponding birth data for period between 1950 and 2020. An important assumption of linear regression that I am violating here is that I am assuming the relationship will be same in the period 10000 BC to 1950 as 1950 to 2015 - that is I am applying the linear regression model in a very different time period than the one it was trained with. But, like any applied data scientist I can live with violating rules if the output looks useful, without hampering the meaningfulness of the exercise.
+
+#### A while back I had mentioned about keeping only the population numbers for years divisible by 5 in world population data. This is because the birth information is only available for intervals of 5 years and not each year. So, in our linear regression exercise, we will model the births that happened in a period of 5 years with what was the population of the world at the beginning of the 5 year period. For example, we have birth information from 1960 to 1964 for the row where year == 1960. We model this with world population count in the year 1960.
+
+#### We start by building a dataset that brings together population and birth data. The reason we dont include year 2020 of population data is because we can't have birth data for 2020-2024.
+```{r dataset for modeling, include=T}
+df <- cbind(wrldPopData[wrldPopData$Year != "2020",],wrldBirthsData[,"BirthsX1000"])
+colnames(df)[4] <- "BirthInNext5Yrs"
+```
+#### This is how the modeling dataset looks like:
+```{r modeling data view, include=T}
+knitr::kable(rbind(head(df,3),tail(df,3)))
+```
+
+
+#### Let's see if there is a linear relationship between the independent variable and dependent variable through a scatter plot with a line fit:
+```{r scatter plot and line fit, include=T}
+# Visualizing the relationship
+plot(x = df[,"PopulationX1000"], y = df[,"BirthInNext5Yrs"], main = "Population In a Year vs Births in Next 5 Years",
+     xlab = "Population in a Year", ylab = "Birth In Corresponding Next 5 Years",
+     pch = 19, frame = FALSE)
+abline(lm(BirthInNext5Yrs ~ PopulationX1000, data = df), col = "red")
+```
+
+#### Well, the relationship does look linear, although not a smooth one. The fitted line appears skewed with the middle values. We will still go ahead and see the accuracy metrics from a linear regression model.
+
+```{r linear regression, include=T}
+linearRegFit <- lm(BirthInNext5Yrs ~ PopulationX1000, data = df)
+
+# A Quick look at the accuracy measures and coefficients:
+linearRegFit
+summary(linearRegFit)
+```
+
+#### The R Squared is around 79%, that's not too bad. Looks like we can find a fit better than the linear regression (maybe change model to timeseries), but for the time being I am going to assume this is good enough and test out rest of my idea. I will make predictions on the world population data that goes back to 10,000 BC and see the birth count values.
+
+#### In the world population data, we keep only years that are divisible by 5, also change the population count into thousands by dividing by 1000.
+
+```{r modifying world population data, include=T}
+# Making this data as 5 year gaps, same as wrldPopData
+histWrldPopData <- histWrldPopData[histWrldPopData$Year %in% seq(from = -10000, to = 1945, by = 5),]
+
+# Dividing the population by 1000 since in datasets wrldPopData and wrldBirthsData, the count is in thousands
+histWrldPopData$Population <- histWrldPopData$Population/1000
+
+```
+
+#### Now, we predict using the model on this dataset:
+```{r predictions, include=T}
+# Predicting the number of births in that era using the linear regression model:
+histWrldPopData$BirthInNext5Yrs <- predict(object = linearRegFit, newdata = data.frame(PopulationX1000 = histWrldPopData$Population))
+```
+
+#### This is how the predictions look like:
+```{r predicted data view, include=T}
+knitr::kable(rbind(head(histWrldPopData,3),tail(histWrldPopData,3)))
+```
+
+#### You will see that birth counts look reasonable for years close to 1950, but for period way back to 10,000 BC, you will see that the number of births are higher than population size itself - this is not possible. This is happening because the intercept is much higher and is resulting in a high population count. This model will not work.
+
+#### After thinking for a while, this is what I have figured - one idea that we can try to overcome this issue of high intercept value is changing the entire model itself: so now instead of modeling number of Births against Population size, I will calculate a metric Birth Percentage = (Birth Count in Current 5 Year period)/(Population Size of Current Year). And, model this "Birth Percentage" against population size. Let's see if this gives meaningful output
+
+```{r second scatter plot, include=T}
+df$birthPct <- df$BirthInNext5Yrs/df$PopulationX1000
+# Visualizing the relationship
+plot(x = df[,"PopulationX1000"], y = df[,"birthPct"], main = "Population In a Year vs Birth Percentage",
+     xlab = "Population in a Year", ylab = "Birth Percentage",
+     pch = 19, frame = FALSE)
+abline(lm(birthPct ~ PopulationX1000, data = df), col = "red")
+```
+
+#### The scatter plot now shows a strong linear relationship, with a decreasing trend in birth percentage as the population is increasing. This is probably because of the improvement in lifestyle of modern era humans. Let's check the accuracy measures of such a model.
+
+```{r second linear regression model, include=T}
+linearRegFit_brthPct <- lm(birthPct ~ PopulationX1000, data = df)
+# A Quick look at the accuracy measures and coefficients:
+linearRegFit_brthPct
+summary(linearRegFit_brthPct)
+```
+
+#### Looks like I have chanced upon a great feature engineering - the RSquared is over 97% when we construct the relationship between birth numbers and population size in this way. Let's see how does this model predict the births for very low populations of BC era (in the previous linear regression model, this is where we had to abandon the model):
+
+```{r prediction inspection, include=T}
+histWrldPopData$predictedBirthPct <- predict(object = linearRegFit_brthPct, newdata = data.frame(PopulationX1000 = histWrldPopData$Population))
+histWrldPopData$BirthInNext5Yrs <- histWrldPopData$Population*histWrldPopData$predictedBirthPct
+knitr::kable(rbind(head(histWrldPopData,3),tail(histWrldPopData,3)))
+```
+
+#### Birth percentage of 24% for 10000 BC may appear high if you misunderstand this as annual birth percentage. But, we have to remember that this is the total fraction of births over a period of next 5 years because that is what the input birth population data is. Also, when we compare it with the actual data of UN, we see that Birth Percentage is around 19% in 1950 with a small downward trend reaching 9% in 2015, it makes sense that in the primitive era birth percentage could be close to 24%. Also, the predicted birth percentage for era between 19th Century and first half of 20th is around 20%, which is again close to the birth percentage 19.3% for actual data of 1950.
+
+#### Another reason I am going to accept the chances of error in this approach is because the numbers from the primitive era is small compared to modern era population numbers. If we try to estimate the unique human count between 10000 BC and, say, 1900, the population size of 1900 era will dominate the count (where we have more accurate estimate of birth percentage than 10000 BC, possibly) and reduce the fraction of error in estimation.
+
+#### One might argue that looking at the population count around 10000 BC era, it does not change as much as the number of birth - it is possible that the deaths must be high due to mortality rate in both infants and adults, and expected life span would also be small. These deaths might be offsetting the growth in population from births and explain the small gain in population size.
+
+#### So, this model looks great to me and I am going to go ahead with this model's output.
+
+
+
+## Estimating the "Count of Us":
+
+#### We have now reached the final stage of the process: we already had the population numbers for period between 10,000 BC and 2020 and now we have applied statistics to estimate the birth information for the same period. Now we will bring these extrapolated births count and population count in the dataset we are using for estimating the number of unique people:
+
+```{r merge, include=T}
+wrldBirthsData <- rbind(wrldBirthsData, data.frame(Type = "WorldExtrapolated", Year = paste0(seq(from = -10000, to = 1945, by = 5), "-" , seq(from = -9995, to = 1950, by = 5)), BirthsX1000 = histWrldPopData$BirthInNext5Yrs, YearMod = histWrldPopData$Year))
+wrldBirthsData <- wrldBirthsData %>% arrange(-(YearMod))
+
+wrldPopData <- rbind(wrldPopData, data.frame(Type = "WorldExtrapolated", Year = histWrldPopData$Year, PopulationX1000 = histWrldPopData$Population))
+wrldPopData <- wrldPopData %>% arrange(-Year)
+```
+
+#### This is how the first three rows and last three rows of the wrldPopData looks like:
+```{r show pop data, include=T}
+knitr::kable(rbind(head(wrldPopData,3),tail(wrldPopData,3)))
+```
+
+#### This is how the first three rows and last three rows of the wrldBirthsData looks like:
+```{r show brith data, include=T}
+knitr::kable(rbind(head(wrldBirthsData,3),tail(wrldBirthsData,3)))
+```
+
+
+### Testing the estimation data:
+
+#### Let's say we need to figure out the total number of unique people between 1940 and 1965 - we will start with base population of 1940 and add all the births that happened between 1940 upto 1965
+
+```{r sample calculation}
+i = 1940
+j = 1965
+uhc <- wrldPopData[wrldPopData$Year == i,"PopulationX1000"] + sum(wrldBirthsData[wrldBirthsData$YearMod >= i & wrldBirthsData$YearMod <= (j - 5),"BirthsX1000"])
+cat("Number of unique people between ",i," and ",j," = ", uhc)
+```
+
+### Output for App:
+
+#### Next, we save the output of the datasets that we can use in the "Count of Us" application
+
+```{r save op, include=T}
+# Taking the output to be used in the app:
+saveRDS(wrldPopData, "data/wrldPopData.RDS")
+saveRDS(wrldBirthsData, "data/wrldBirthsData.RDS")
+
+```
+
+## Closing words:
+#### Hope you had an interesting time going through the app and the approach. I have personally found the idea and approach challenging enough to keep me engaged for a few weekends and had a good time working on it. I have tried to keep the caluclations accurate to the best of my ability. In case you have any suggestion or a correction to point out, please feel free to email me at ashwinijha01@gmail.com.
+
+
+### [Stay Curious](https://www.linkedin.com/in/ashwini-jha-009646125),
+### [Ashwini Jha](https://www.linkedin.com/in/ashwini-jha-009646125/)
