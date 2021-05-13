@@ -2,7 +2,7 @@
 
 There is a word in English - 'sonder', which means 'a realization that each individual around you has a vivid and complex life like you'. So, how many such vivid and complex lives ever come to live by on the Earth? Curiosity behind this question led to this app. 
 
-The app is temporarily hosted here: http://34.70.139.63:3838/AshwiniJha/DataScience/CountOfUs/
+The app is hosted on shinyapps.io: https://ashwinijha.shinyapps.io/Count_of_Us/
 
 Here is the link to a video demo of the app: https://www.youtube.com/embed/NfYR9uTQdIo
 
